@@ -54,7 +54,7 @@ Manage the server’s SQLite user database from the command line:
    ```
 
 ### Running with Docker
-````bash
+```bash
 wget https://github.com/ivar1309/Handradi/blob/main/compose.yaml
 docker compose up -d
 ```
