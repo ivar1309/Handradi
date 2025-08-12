@@ -1,2 +1,3 @@
-# Handra-i
+# Handraði
 Simple http based file server
+
