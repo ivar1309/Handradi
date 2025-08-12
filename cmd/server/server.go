@@ -11,18 +11,33 @@ import (
 
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
+	"github.com/ivar1309/Handradi/internal/db"
 )
 
 var (
 	storageRoot = "./storage"
-	validAPIKey = "secret123" // change in production!
 )
 
 // Middleware: API Key + CORS
 func withAuthAndCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", "*")
+		clientID := sanitizeClient(r.URL.Query().Get("client"))
+		apiKey := r.Header.Get("x-api-key")
+
+		if clientID == "" || apiKey == "" {
+			http.Error(w, "Missing client or API key", http.StatusUnauthorized)
+			return
+		}
+
+		allowedOrigin, err := db.CheckAuth(clientID, apiKey)
+
+		if err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+
+		// Set dynamic CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, x-api-key")
 
@@ -31,11 +46,37 @@ func withAuthAndCORS(next http.Handler) http.Handler {
 			return
 		}
 
-		// API key check
-		if r.Header.Get("x-api-key") != validAPIKey {
-			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// Middleware: Public CORS
+func withPublicCORS(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		clientID := sanitizeClient(r.URL.Query().Get("client"))
+
+		if clientID == "" {
+			http.Error(w, "Missing client", http.StatusUnauthorized)
 			return
 		}
+
+		allowedOrigin, err := db.CheckOrigin(clientID)
+
+		if err != nil {
+			http.Error(w, "Client not found", http.StatusUnauthorized)
+			return
+		}
+
+		// Set dynamic CORS headers
+		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -175,11 +216,15 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	db.InitDB()
+	defer db.Close()
+
 	mux := http.NewServeMux()
 	mux.Handle("/upload", withAuthAndCORS(http.HandlerFunc(uploadHandler)))
-	mux.Handle("/download", withAuthAndCORS(http.HandlerFunc(downloadHandler)))
 	mux.Handle("/delete", withAuthAndCORS(http.HandlerFunc(deleteHandler)))
 	mux.Handle("/list", withAuthAndCORS(http.HandlerFunc(listHandler)))
+
+	mux.Handle("/download", withPublicCORS(http.HandlerFunc(downloadHandler)))
 
 	log.Println("📦 File server running on :8888")
 	log.Fatal(http.ListenAndServe(":8888", mux))
