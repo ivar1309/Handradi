@@ -226,6 +226,11 @@ func main() {
 
 	mux.Handle("/download", withPublicCORS(http.HandlerFunc(downloadHandler)))
 
-	log.Println("📦 File server running on :8888")
-	log.Fatal(http.ListenAndServe(":8888", mux))
+	port := "8888"
+	if p, exists := os.LookupEnv("HANDRADI_PORT"); exists {
+		port = p
+	}
+
+	log.Printf("📦 File server running on :%v", port)
+	log.Fatal(http.ListenAndServe(":"+port, mux))
 }

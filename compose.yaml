@@ -1,0 +1,12 @@
+services:
+  handradi:
+    image: ghcr.io/ivar1309/handradi:latest
+    container_name: handradi
+    restart: unless-stopped
+    ports:
+      - "8888:8888"
+    environment:
+      - PORT=8888
+    volumes:
+      - ./storage:/app/storage        # Persistent file uploads
+      - ./clients.db:/app/clients.db  # Persistent SQLite DB
