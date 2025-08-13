@@ -3,9 +3,9 @@ name: Build and Publish Docker Image
 on:
   push:
     tags:
-      - 'v*'       # Runs only when you push a tag like v1.0.0
+      - 'v*'       # e.g. v1.0.0
     branches:
-      - main       # Optional: run on main branch pushes
+      - main       # pushes to main
 
 jobs:
   build:
@@ -26,26 +26,32 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Determine Docker tag
+      - name: Determine image name and tags
         id: vars
         run: |
+          # Lowercase repo name for Docker
+          REPO_LC=$(echo "${GITHUB_REPOSITORY}" | tr '[:upper:]' '[:lower:]')
+
           if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
             VERSION=${GITHUB_REF#refs/tags/}
+            TAGS="$VERSION latest"
           elif [[ "${GITHUB_REF}" == refs/heads/* ]]; then
             VERSION=${GITHUB_REF#refs/heads/}
+            VERSION=${VERSION//\//-}
+            TAGS="latest"
           else
             VERSION=latest
+            TAGS="latest"
           fi
-          VERSION=${VERSION//\//-} # replace any slashes with dashes
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
 
-      - name: Build Docker image
+          echo "repo=$REPO_LC" >> $GITHUB_OUTPUT
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
+
+      - name: Build and push Docker image
         run: |
-          IMAGE_NAME=ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
-          echo "Building image: $IMAGE_NAME"
-          docker build -t $IMAGE_NAME .
-  
-      - name: Push Docker image
-        run: |
-          IMAGE_NAME=ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
-          docker push $IMAGE_NAME
+          for TAG in ${{ steps.vars.outputs.tags }}; do
+            IMAGE=ghcr.io/${{ steps.vars.outputs.repo }}:$TAG
+            echo "Building $IMAGE"
+            docker build -t $IMAGE .
+            docker push $IMAGE
+          done
