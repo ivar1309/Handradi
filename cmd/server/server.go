@@ -123,6 +123,8 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	log.Printf("Upload: %v to %v", filename, dir)
+
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, `{"message":"uploaded","path":"%s"}`, filePath)
 }
@@ -166,8 +168,13 @@ func downloadHandler(w http.ResponseWriter, r *http.Request) {
 		resized := imaging.Resize(img, width, height, imaging.Lanczos)
 		w.Header().Set("Content-Type", "image/png")
 		imaging.Encode(w, resized, imaging.PNG)
+
+		log.Printf("Download: %v in changed dimensions -> %vx%v", filename, width, height)
+
 		return
 	}
+
+	log.Printf("Download: %v in original dimensions", filename)
 
 	http.ServeFile(w, r, filePath)
 }
@@ -187,6 +194,9 @@ func deleteHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Delete failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
+
+	log.Printf("Delete: %v", filename)
+
 	fmt.Fprint(w, `{"message":"deleted"}`)
 }
 
