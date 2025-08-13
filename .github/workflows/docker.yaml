@@ -26,19 +26,26 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Extract version
+      - name: Determine Docker tag
         id: vars
         run: |
-          VERSION=${GITHUB_REF#refs/tags/}
-          if [ "$VERSION" = "" ]; then
+          if [[ "${GITHUB_REF}" == refs/tags/* ]]; then
+            VERSION=${GITHUB_REF#refs/tags/}
+          elif [[ "${GITHUB_REF}" == refs/heads/* ]]; then
+            VERSION=${GITHUB_REF#refs/heads/}
+          else
             VERSION=latest
           fi
+          VERSION=${VERSION//\//-} # replace any slashes with dashes
           echo "version=$VERSION" >> $GITHUB_OUTPUT
 
       - name: Build Docker image
         run: |
-          docker build -t ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }} .
-
+          IMAGE_NAME=ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
+          echo "Building image: $IMAGE_NAME"
+          docker build -t $IMAGE_NAME .
+  
       - name: Push Docker image
         run: |
-          docker push ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
+          IMAGE_NAME=ghcr.io/${{ github.repository }}:${{ steps.vars.outputs.version }}
+          docker push $IMAGE_NAME
