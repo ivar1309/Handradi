@@ -26,8 +26,9 @@ WORKDIR /app
 COPY --from=builder /app/server ./server
 COPY --from=builder /app/cli ./cli
 
-# Create storage folder
+# Create storage and clients folder
 RUN mkdir -p /app/storage
+RUN mkdir -p /app/clients
 
 # Default command — run the server
 CMD ["/app/server"]
