@@ -16,7 +16,7 @@ type User struct {
 
 func InitDB() {
 	var err error
-	DB, err = sql.Open("sqlite", "./clients.db")
+	DB, err = sql.Open("sqlite", "./clients/clients.db")
 	if err != nil {
 		panic(err)
 	}

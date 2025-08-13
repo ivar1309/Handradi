@@ -9,4 +9,4 @@ services:
       - PORT=8888
     volumes:
       - ./storage:/app/storage        # Persistent file uploads
-      - ./clients.db:/app/clients.db  # Persistent SQLite DB
+      - ./clients:/app/clients        # Persistent SQLite DB
