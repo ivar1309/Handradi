@@ -20,6 +20,7 @@ Designed to integrate easily with [MedusaJS](https://medusajs.com) or be used as
 - **Allowed Origin control** — Per-client CORS restriction
 - **SQLite database** — Stores `client_id`, `api_key`, and `allowed_origin`
 - **Server Port** — Set the environment variable `HANDRADI_PORT` to your desired port, default is `8888`.
+- **Presign Secret** — Set the environment variable `PRESIGN_SECRET` to a secure value.
 ---
 
 ### CLI

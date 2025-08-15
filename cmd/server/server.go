@@ -1,13 +1,19 @@
 package main
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/disintegration/imaging"
 	"github.com/gabriel-vasile/mimetype"
@@ -53,22 +59,8 @@ func withAuthAndCORS(next http.Handler) http.Handler {
 // Middleware: Public CORS
 func withPublicCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		clientID := sanitizeClient(r.URL.Query().Get("client"))
-
-		if clientID == "" {
-			http.Error(w, "Missing client", http.StatusUnauthorized)
-			return
-		}
-
-		allowedOrigin, err := db.CheckOrigin(clientID)
-
-		if err != nil {
-			http.Error(w, "Client not found", http.StatusUnauthorized)
-			return
-		}
-
 		// Set dynamic CORS headers
-		w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
+		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 
@@ -110,16 +102,15 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	filePath := filepath.Join(dir, filename)
-	out, err := os.Create(filePath)
+	fileContent, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "Cannot create file: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "could not read body", http.StatusBadRequest)
 		return
 	}
-	defer out.Close()
 
-	if _, err := out.ReadFrom(r.Body); err != nil {
-		http.Error(w, "Write failed: "+err.Error(), http.StatusInternalServerError)
+	filePath, err := saveFile(dir, filename, fileContent)
+	if err != nil {
+		http.Error(w, "Cannot create file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -127,6 +118,21 @@ func uploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(http.StatusCreated)
 	fmt.Fprintf(w, `{"message":"uploaded","path":"%s"}`, filePath)
+}
+
+func saveFile(dir string, filename string, content []byte) (string, error) {
+	filePath := filepath.Join(dir, filename)
+	out, err := os.Create(filePath)
+	if err != nil {
+		return "", err
+	}
+	defer out.Close()
+
+	if _, err := out.Write(content); err != nil {
+		return "", err
+	}
+
+	return filePath, nil
 }
 
 // Download + optional resize
@@ -225,6 +231,88 @@ func listHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(out)
 }
 
+func presignHandler(w http.ResponseWriter, r *http.Request) {
+	client := sanitizeClient(r.URL.Query().Get("client"))
+	filename := filepath.Base(r.URL.Query().Get("filename"))
+
+	if client == "" || filename == "" {
+		http.Error(w, "client and filename required", http.StatusBadRequest)
+		return
+	}
+
+	dir := filepath.Join(storageRoot, client)
+	filePath := filepath.Join(dir, filename)
+	fileContent, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "could not read body", http.StatusBadRequest)
+		return
+	}
+
+	expiresAt := time.Now().Add(5 * time.Minute).Unix()
+
+	// signature: HMAC(secret, path|expires)
+	mac := hmac.New(sha256.New, []byte(os.Getenv("PRESIGN_SECRET")))
+	mac.Write([]byte(fmt.Sprintf("%s|%s|%d", filePath, fileContent, expiresAt)))
+	sig := mac.Sum(nil)
+
+	encodedPayload := base64.URLEncoding.EncodeToString([]byte(
+		fmt.Sprintf("%s|%d|%s", filePath, expiresAt, sig),
+	))
+
+	presignedURL := fmt.Sprintf("/presignedupload?q=%s", encodedPayload)
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]string{
+		"url": presignedURL,
+	})
+}
+
+func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
+	q, err := base64.URLEncoding.DecodeString(r.URL.Query().Get("q"))
+	if err != nil {
+		http.Error(w, "Could not decode q", http.StatusBadRequest)
+	}
+
+	parts := strings.Split(string(q), "|")
+	filePath := parts[0]
+	expiresStr := parts[1]
+	sigString := parts[2]
+
+	expiresAt, _ := strconv.ParseInt(expiresStr, 10, 64)
+	if time.Now().Unix() > expiresAt {
+		http.Error(w, "URL expired", http.StatusUnauthorized)
+		return
+	}
+
+	fileContent, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "could not read body", http.StatusBadRequest)
+		return
+	}
+
+	mac := hmac.New(sha256.New, []byte(os.Getenv("PRESIGN_SECRET")))
+	mac.Write([]byte(fmt.Sprintf("%s|%s|%d", filePath, fileContent, expiresAt)))
+	expectedSig := mac.Sum(nil)
+	sig := []byte(sigString)
+	if !hmac.Equal([]byte(expectedSig), []byte(sig)) {
+		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		return
+	}
+
+	dir := filepath.Dir(filePath)
+	filename := filepath.Base(filePath)
+	savedFilePath, err := saveFile(dir, filename, fileContent)
+	if err != nil {
+		http.Error(w, "Cannot create file: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	log.Printf("Upload: %v to %v", filename, dir)
+
+	w.WriteHeader(http.StatusCreated)
+	fmt.Fprintf(w, `{"message":"uploaded","path":"%s"}`, savedFilePath)
+}
+
 func main() {
 	db.InitDB()
 	defer db.Close()
@@ -233,8 +321,10 @@ func main() {
 	mux.Handle("/upload", withAuthAndCORS(http.HandlerFunc(uploadHandler)))
 	mux.Handle("/delete", withAuthAndCORS(http.HandlerFunc(deleteHandler)))
 	mux.Handle("/list", withAuthAndCORS(http.HandlerFunc(listHandler)))
+	mux.Handle("/presignurl", withAuthAndCORS(http.HandlerFunc(presignHandler)))
 
 	mux.Handle("/download", withPublicCORS(http.HandlerFunc(downloadHandler)))
+	mux.Handle("/presignedupload", withPublicCORS(http.HandlerFunc(presignedUploadHandler)))
 
 	port := "8888"
 	if p, exists := os.LookupEnv("HANDRADI_PORT"); exists {
