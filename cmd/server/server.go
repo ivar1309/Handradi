@@ -242,17 +242,11 @@ func presignHandler(w http.ResponseWriter, r *http.Request) {
 
 	dir := filepath.Join(storageRoot, client)
 	filePath := filepath.Join(dir, filename)
-	fileContent, err := io.ReadAll(r.Body)
-	if err != nil {
-		http.Error(w, "could not read body", http.StatusBadRequest)
-		return
-	}
-
 	expiresAt := time.Now().Add(5 * time.Minute).Unix()
 
 	// signature: HMAC(secret, path|expires)
 	mac := hmac.New(sha256.New, []byte(os.Getenv("PRESIGN_SECRET")))
-	mac.Write([]byte(fmt.Sprintf("%s|%s|%d", filePath, fileContent, expiresAt)))
+	mac.Write([]byte(fmt.Sprintf("%s|%d", filePath, expiresAt)))
 	sig := mac.Sum(nil)
 
 	encodedPayload := base64.URLEncoding.EncodeToString([]byte(
@@ -291,7 +285,7 @@ func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mac := hmac.New(sha256.New, []byte(os.Getenv("PRESIGN_SECRET")))
-	mac.Write([]byte(fmt.Sprintf("%s|%s|%d", filePath, fileContent, expiresAt)))
+	mac.Write([]byte(fmt.Sprintf("%s|%d", filePath, expiresAt)))
 	expectedSig := mac.Sum(nil)
 	sig := []byte(sigString)
 	if !hmac.Equal([]byte(expectedSig), []byte(sig)) {

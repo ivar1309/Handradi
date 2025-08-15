@@ -14,7 +14,10 @@ Designed to integrate easily with [MedusaJS](https://medusajs.com) or be used as
     - optional parameters `width` & `height` trigger a server side resize of an image fetched.
     - if only one of them is set, then the image keeps the original aspect ratio.
   - `DELETE /upload?client=<ID>&filename=<NAME>` — Delete a file
-  - all requests except for `/download` require `x-api-key` to be set. 
+  - `GET /presignurl?client=<ID>&filename=<NAME>` — Obtain a presigned upload url.
+  - `POST /presignedupload?q=<BASE64ENCODED>` — Upload a file with presigned url
+  - all requests except for `/download` and `/presignedupload` require `x-api-key` to be set.
+  - `POST` methods require file content in the body of the request. 
 - **Client isolation** — Each client has its own directory
 - **API key authentication** — Verify requests using `client_id` and `api_key`
 - **Allowed Origin control** — Per-client CORS restriction
