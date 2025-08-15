@@ -264,6 +264,7 @@ func presignHandler(w http.ResponseWriter, r *http.Request) {
 func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
 	q, err := base64.URLEncoding.DecodeString(r.URL.Query().Get("q"))
 	if err != nil {
+		log.Printf("Could not decode q: %s\n", err.Error())
 		http.Error(w, "Could not decode q", http.StatusBadRequest)
 	}
 
@@ -274,13 +275,15 @@ func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	expiresAt, _ := strconv.ParseInt(expiresStr, 10, 64)
 	if time.Now().Unix() > expiresAt {
+		log.Printf("URL expired: %d\n", expiresAt)
 		http.Error(w, "URL expired", http.StatusUnauthorized)
 		return
 	}
 
 	fileContent, err := io.ReadAll(r.Body)
 	if err != nil {
-		http.Error(w, "could not read body", http.StatusBadRequest)
+		log.Printf("Could not read body: %s\n", err.Error())
+		http.Error(w, "Could not read body", http.StatusBadRequest)
 		return
 	}
 
@@ -289,7 +292,8 @@ func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
 	expectedSig := mac.Sum(nil)
 	sig := []byte(sigString)
 	if !hmac.Equal([]byte(expectedSig), []byte(sig)) {
-		http.Error(w, "invalid signature", http.StatusUnauthorized)
+		log.Println("Invalid signature")
+		http.Error(w, "Invalid signature", http.StatusUnauthorized)
 		return
 	}
 
@@ -297,6 +301,7 @@ func presignedUploadHandler(w http.ResponseWriter, r *http.Request) {
 	filename := filepath.Base(filePath)
 	savedFilePath, err := saveFile(dir, filename, fileContent)
 	if err != nil {
+		log.Printf("Cannot create file: %s\n", err.Error())
 		http.Error(w, "Cannot create file: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
